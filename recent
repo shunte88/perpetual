@@ -1,0 +1,30 @@
+#!/bin/sh
+#!/bin/sh
+RESET=''
+if [ -n "$2" ]
+then
+  RESET=' --watch-later-options-clr'
+fi
+
+killall mpv
+rm -f /tmp/mpv.sock
+
+echo starting mpv
+/usr/bin/mpv --idle=yes \
+ --force-window=yes \
+ --really-quiet \
+ --alang=en \
+ --sub-auto=all \
+ --video-unscaled=no \
+ --video-zoom=0 \
+ --volume=100 \
+ --fullscreen=yes --fs \
+ --loop-playlist=inf \
+ $RESET \
+ --input-ipc-server=/tmp/mpv.sock &
+
+echo now launch recent
+
+sleep 3
+
+clear;python3 ~/perpetual/perpetual.py --days $1 --prune-playing --watch-subdirs --resume --socket /tmp/mpv.sock

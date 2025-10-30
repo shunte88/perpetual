@@ -1,1 +1,12 @@
 # perpetual
+- Start mpv and setup IPC to communicate
+- Perpetual communicates via IPC
+- Maitains a perpetual playlist that is sent via IPC to mpv
+- Organize incoming TV files (sxanni-style) into Show/ folders (no prompts)
+- Maintain an mpv 'recent files' playlist via JSON-IPC (append/prune/reorder)
+- Default order = oldest first by mtime
+- Exits immediately when mpv quits (press 'q')
+- Saves/restores last playing file + position across restarts/quit
+- After organizing, per-show S/E retime of mtimes so mtime order matches Season/Episode
+- Uses inotify to react to new/updated files
+- No periodic polling scan needed
