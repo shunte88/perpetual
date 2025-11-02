@@ -28,27 +28,13 @@ from pathlib import Path
 
 libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
-IN_ACCESS        = 0x00000001
-IN_MODIFY        = 0x00000002
-IN_ATTRIB        = 0x00000004
 IN_CLOSE_WRITE   = 0x00000008
-IN_CLOSE_NOWRITE = 0x00000010
-IN_OPEN          = 0x00000020
 IN_MOVED_FROM    = 0x00000040
 IN_MOVED_TO      = 0x00000080
-IN_CREATE        = 0x00000100
 IN_DELETE        = 0x00000200
-IN_DELETE_SELF   = 0x00000400
-IN_MOVE_SELF     = 0x00000800
 
-IN_ONLYDIR       = 0x01000000
-IN_DONT_FOLLOW   = 0x02000000
-IN_EXCL_UNLINK   = 0x04000000
-IN_MASK_ADD      = 0x20000000
-
-WATCH_MASK = (
-    IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE | IN_MOVED_FROM
-)
+# you had removed IN_CREATE due to race, keep that
+WATCH_MASK = IN_CLOSE_WRITE | IN_MOVED_TO | IN_DELETE | IN_MOVED_FROM
 
 class Inotify:
     def __init__(self):
@@ -59,7 +45,7 @@ class Inotify:
         self.wds = {}
 
     def add_watch(self, path: str, mask: int = WATCH_MASK):
-        bpath = path.encode("utf-8")
+        bpath = path.encode('utf-8')
         wd = libc.inotify_add_watch(self.fd, ctypes.c_char_p(bpath), ctypes.c_uint32(mask))
         if wd < 0:
             e = ctypes.get_errno()
@@ -68,30 +54,26 @@ class Inotify:
         return wd
 
     def read_events(self):
-        # read a chunk of events
         try:
             data = os.read(self.fd, 4096)
         except BlockingIOError:
             return []
         events = []
         i = 0
-        _sz_event = ctypes.sizeof(ctypes.c_int) * 3 + ctypes.sizeof(ctypes.c_uint32)
         while i < len(data):
-            # struct inotify_event {
-            #   int wd; uint32_t mask; uint32_t cookie; uint32_t len; char name[];
-            # }
-            wd = int.from_bytes(data[i:i+4], "little", signed=True)
-            mask = int.from_bytes(data[i+4:i+8], "little")
-            cookie = int.from_bytes(data[i+8:i+12], "little")
-            length = int.from_bytes(data[i+12:i+16], "little")
+            wd     = int.from_bytes(data[i:i+4], 'little', signed=True)
+            mask   = int.from_bytes(data[i+4:i+8], 'little')
+            cookie = int.from_bytes(data[i+8:i+12], 'little')
+            length = int.from_bytes(data[i+12:i+16], 'little')
             name = b""
             if length > 0:
                 name = data[i+16:i+16+length].split(b"\0", 1)[0]
-            events.append((wd, mask, cookie, name.decode("utf-8")))
+            events.append((wd, mask, cookie, name.decode('utf-8')))
             i += 16 + length
         return events
 
-BASE_FOLDER = "/data/videos"
+# ================= your constants =================
+BASE_FOLDER = '/data/videos'
 FILETYPES  = ["avi","mkv","mpeg","mp4","m4v","mpg","webm","avif","ts"]
 
 SPECIAL_CASES = {
@@ -102,19 +84,19 @@ SPECIAL_CASES = {
 
 def load_garbage_words(filepath: str) -> set[str]:
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, 'r', encoding='utf-8') as f:
             return {line.strip().lower() for line in f if line.strip()}
     except FileNotFoundError:
         return set()
 
-GARBAGE_WORDS = load_garbage_words("/data/tvtitle_munge.txt")
+GARBAGE_WORDS = load_garbage_words('/data/tvtitle_munge.txt')
 
 def make_path_with_test(path: Path) -> bool:
     try:
         path.mkdir(parents=True, exist_ok=True)
         return True
     except Exception as e:
-        print(f"Couldn't create {path}: {e}", file=sys.stderr)
+        print(f"Could not create {path}: {e}", file=sys.stderr)
         return False
 
 def clean_filename(filename: str):
@@ -136,7 +118,7 @@ def clean_filename(filename: str):
         if tok:
             filtered_tokens.append(tok)
 
-    episode_title = ""
+    episode_title = ''
     if filtered_tokens:
         formatted = [w.upper() if w.upper() in SPECIAL_CASES else w.capitalize()
                      for w in filtered_tokens]
@@ -147,13 +129,13 @@ def clean_filename(filename: str):
                       for w in show_tokens if w]
     show_name = ".".join(formatted_show).strip(".")
 
-    extension = filename.split(".")[-1].lower()
+    ext = filename.split(".")[-1].lower()
     folder = show_name.strip()
 
-    if season_episode.upper() != "S00E00":
-        clean = f"{folder}.{season_episode.upper()}{episode_title}.{extension}"
+    if season_episode.upper() != 'S00E00':
+        clean = f"{folder}.{season_episode.upper()}{episode_title}.{ext}"
     else:
-        clean = f"{folder}{episode_title}.{extension}"
+        clean = f"{folder}{episode_title}.{ext}"
     return folder, clean
 
 def dynamic_episode_pattern(filetypes: list[str]) -> re.Pattern:
@@ -204,8 +186,7 @@ def parse_se(path: Path):
     if not m:
         return None
     try:
-        s = int(m.group(1)); e = int(m.group(2))
-        return (s, e)
+        return (int(m.group(1)), int(m.group(2)))
     except ValueError:
         return None
 
@@ -254,7 +235,6 @@ def scan_recent(dirpath: Path, days: float, exts, order: str = "oldest"):
     rev = (order == "newest")
     files.sort(key=lambda p: p.stat().st_mtime, reverse=rev)
     return files
-
 class MpvIPC:
     def __init__(self, addr, auto_launch=False, launch_cmd=None, timeout=20):
         self.addr = addr
@@ -299,9 +279,17 @@ class MpvIPC:
                 time.sleep(0.5)
         raise ConnectionRefusedError(f"Could not connect to mpv at {self.addr}: {last_err}")
 
+    def reconnect(self):
+        """Try to reconnect once if mpv restarts."""
+        try:
+            self._connect()
+            return True
+        except Exception:
+            return False
+
     def _send(self, payload):
         line = json.dumps(payload, separators=(',', ':')) + "\n"
-        self.sock.sendall(line.encode("utf-8"))
+        self.sock.sendall(line.encode('utf-8'))
 
     def send(self, *command):
         self._send({"command": list(command)})
@@ -310,12 +298,15 @@ class MpvIPC:
         data = b''
         while True:
             chunk = self.sock.recv(65536)
-            if not chunk: break
+            if not chunk:
+                break
             data += chunk
-            if b"\n" in chunk: break
-        if not data: return None
+            if b"\n" in chunk:
+                break
+        if not data:
+            return None
         try:
-            obj = json.loads(data.splitlines()[-1].decode("utf-8"))
+            obj = json.loads(data.splitlines()[-1].decode('utf-8'))
             return obj if isinstance(obj, dict) else None
         except Exception:
             return None
@@ -349,8 +340,10 @@ def reconcile_playlist(ipc: MpvIPC, desired_paths: list[Path], keep_current=True
     remove_indices = []
     for path in to_remove_paths:
         idx = idx_by_path.get(path)
-        if idx is None: continue
-        if keep_current and idx == cur_pos: continue
+        if idx is None:
+            continue
+        if keep_current and idx == cur_pos:
+            continue
         remove_indices.append(idx)
     for idx in sorted(remove_indices, reverse=True):
         ipc.send("playlist-remove", idx)
@@ -363,7 +356,7 @@ def reorder_playlist(ipc: MpvIPC, desired_paths: list[Path]):
     pl = ipc.get_property("playlist") or []
     print(f"[debug] type pl is '{type(pl)}'")
     current = []
-    if type(pl) is int:
+    if isinstance(pl, int):
         return
     for it in pl:
         if not isinstance(it, dict):
@@ -383,7 +376,7 @@ def reorder_playlist(ipc: MpvIPC, desired_paths: list[Path]):
         if j is None:
             ipc.send("loadfile", want, "append-play")
             current.append(want)
-            index_of[want] = len(current)-1
+            index_of[want] = len(current) - 1
             j = index_of[want]
         if j != i:
             ipc.send("playlist-move", j, i)
@@ -406,7 +399,6 @@ def ensure_playing(ipc: MpvIPC):
         ipc.send("set", "pause", "no")
         ipc.send("sub-pos", "-100")
 
-# resume state (unchanged)
 def default_resume_path() -> Path:
     return Path.home() / ".local" / "state" / "perpetual_resume.json"
 
@@ -417,14 +409,14 @@ def save_resume_state(ipc: MpvIPC, resume_path: Path):
     pos  = ipc.get_property("time-pos")
     if path and isinstance(pos, (int, float)):
         try:
-            with open(resume_path, "w", encoding="utf-8") as f:
+            with open(resume_path, "w", encoding='utf-8') as f:
                 json.dump({"path": path, "time": float(pos)}, f)
         except Exception as e:
             print(f"[warn] save_resume_state: {e}", file=sys.stderr)
 
 def load_resume_state(resume_path: Path):
     try:
-        with open(resume_path, "r", encoding="utf-8") as f:
+        with open(resume_path, "r", encoding='utf-8') as f:
             data = json.load(f)
         path = data.get("path")
         t    = data.get("time")
@@ -448,15 +440,13 @@ def apply_resume_if_possible(ipc: MpvIPC, desired_paths: list[Path], resume_path
     pl = ipc.get_property("playlist") or []
     idx_map = {}
     for i, it in enumerate(pl):
-        if not isinstance(it, dict): 
+        if not isinstance(it, dict):
             continue
         fn = it.get("filename")
-        if not fn: 
+        if not fn:
             continue
-        try: 
-            p = str(Path(fn).resolve())
-        except Exception: 
-            p = fn
+        try: p = str(Path(fn).resolve())
+        except Exception: p = fn
         idx_map[p] = i
     idx = idx_map.get(saved_path)
     if idx is None:
@@ -468,12 +458,11 @@ def apply_resume_if_possible(ipc: MpvIPC, desired_paths: list[Path], resume_path
 
 def main():
     ap = argparse.ArgumentParser(description="Organize and keep mpv playlist synced to recent files (with resume + inotify).")
-    ap = argparse.ArgumentParser(description="Organize and keep mpv playlist synced to recent files (with resume).")
     ap.add_argument("--base", default=BASE_FOLDER, help="Base folder (default: /data/videos)")
     ap.add_argument("--days", type=float, default=3.0, help="Recent window in days (default: 3)")
     ap.add_argument("--ext", nargs="*", default=FILETYPES, help="Allowed extensions")
     ap.add_argument("--socket", default="/tmp/mpv.sock", help="mpv IPC path")
-    ap.add_argument("--state-interval", type=int, default=10, help="Resume-state save interval seconds (default: 60)")
+    ap.add_argument("--state-interval", type=int, default=10, help="Resume-state save interval seconds")
     ap.add_argument("--order", choices=["newest","oldest"], default="oldest", help="Sort by mtime (default: oldest)")
     ap.add_argument("--prune-playing", action="store_true", help="Allow pruning currently playing item")
     ap.add_argument("--no-organize", action="store_true", help="Skip organize step")
@@ -494,7 +483,6 @@ def main():
         print(f"Base folder not found: {base_folder}", file=sys.stderr)
         sys.exit(1)
 
-    # initial organize + retime
     if not args.no_organize:
         moved_shows = organize_incoming(base_folder, args.ext)
         for show_dir in sorted(moved_shows):
@@ -508,7 +496,6 @@ def main():
         apply_resume_if_possible(ipc, desired, Path(args.resume_file), allow_stale=args.resume_allow_stale)
     ensure_playing(ipc)
 
-    # inotify
     ino = Inotify()
     ino.add_watch(str(base_folder))
     if args.watch_subdirs:
@@ -516,10 +503,8 @@ def main():
             if d.is_dir():
                 ino.add_watch(str(d))
 
-    # timers for resume-save only
     next_state = time.monotonic() + max(5, args.state_interval)
 
-    # main loop: wait on mpv.sock and inotify fd
     while True:
         try:
             now = time.monotonic()
@@ -527,19 +512,23 @@ def main():
             r, _, _ = select.select([ipc.sock, ino.fd], [], [], timeout)
 
             if r:
+                # ---- mpv socket is readable ----
                 if ipc.sock in r:
+                    # IMPORTANT: PEEK so we DON'T consume the JSON reply mpv sent
                     try:
-                        data = ipc.sock.recv(65536)
+                        data = ipc.sock.recv(1, socket.MSG_PEEK)
                         if not data:
                             print("[info] mpv exited — stopping daemon.")
                             break
-                    except Exception:
+                    except (BlockingIOError, InterruptedError):
+                        pass
+                    except OSError:
                         print("[info] mpv IPC closed — stopping daemon.")
                         break
 
+                # ---- inotify events ----
                 if ino.fd in r:
                     events = ino.read_events()
-                    # we got filesystem changes -> re-run pipeline
                     if events:
                         print(f"[inotify] {len(events)} event(s)")
                         moved_shows = set()
@@ -547,13 +536,12 @@ def main():
                             moved_shows = organize_incoming(base_folder, args.ext)
                             for show_dir in sorted(moved_shows):
                                 retime_show_folder(show_dir)
-
                         desired = scan_recent(base_folder, args.days, args.ext, order=args.order)
                         reconcile_playlist(ipc, desired, keep_current=not args.prune_playing)
                         reorder_playlist(ipc, desired)
                         ensure_playing(ipc)
 
-            # resume save
+            # periodic resume save
             now = time.monotonic()
             if now >= next_state and args.resume:
                 save_resume_state(ipc, Path(args.resume_file))
