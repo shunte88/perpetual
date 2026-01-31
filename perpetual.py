@@ -432,29 +432,34 @@ def apply_resume_if_possible(ipc: MpvIPC, desired_paths: list[Path], resume_path
     saved_path, saved_time = load_resume_state(resume_path)
     if not saved_path:
         return
-    saved_path = str(Path(saved_path).resolve())
-    desired_strs = [str(p) for p in desired_paths]
-    if saved_path not in desired_strs and allow_stale:
-        ipc.send("loadfile", saved_path, "append-play")
-        desired_strs.append(saved_path)
-    pl = ipc.get_property("playlist") or []
-    idx_map = {}
-    for i, it in enumerate(pl):
-        if not isinstance(it, dict):
-            continue
-        fn = it.get("filename")
-        if not fn:
-            continue
-        try: p = str(Path(fn).resolve())
-        except Exception: p = fn
-        idx_map[p] = i
-    idx = idx_map.get(saved_path)
-    if idx is None:
-        return
-    ipc.send("playlist-play-index", idx)
-    ipc.send("seek", saved_time, "absolute", "exact")
-    ipc.send("set", "pause", "no")
-    ipc.send("sub-pos", "-100")
+    try:
+        saved_path = str(Path(saved_path).resolve())
+        desired_strs = [str(p) for p in desired_paths]
+        if saved_path not in desired_strs and allow_stale:
+            ipc.send("loadfile", saved_path, "append-play")
+            desired_strs.append(saved_path)
+        pl = ipc.get_property("playlist") or []
+        idx_map = {}
+        for i, it in enumerate(pl):
+            if not isinstance(it, dict):
+                continue
+            fn = it.get("filename")
+            if not fn:
+                continue
+            try: 
+                p = str(Path(fn).resolve())
+            except Exception:
+                p = fn
+            idx_map[p] = i
+        idx = idx_map.get(saved_path)
+        if idx is None:
+            return
+        ipc.send("playlist-play-index", idx)
+        ipc.send("seek", saved_time, "absolute", "exact")
+        ipc.send("set", "pause", "no")
+        ipc.send("sub-pos", "-100")
+    except Exception:
+        pass
 
 def main():
     ap = argparse.ArgumentParser(description="Organize and keep mpv playlist synced to recent files (with resume + inotify).")
