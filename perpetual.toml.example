@@ -1,0 +1,53 @@
+# Example configuration file for perpetual.py
+# Copy this to perpetual.toml and customize as needed
+# Command-line arguments override these settings
+
+# Base folder containing video files
+base_folder = "/data/videos"
+
+# Recent files window in days
+days = 3.0
+
+# Allowed file extensions
+filetypes = ["avi", "mkv", "mpeg", "mp4", "m4v", "mpg", "webm", "avif", "ts"]
+
+# MPV IPC socket path
+socket_path = "/tmp/mpv.sock"
+
+# Resume state save interval in seconds
+state_interval = 10
+
+# Playlist order: "oldest" or "newest"
+order = "oldest"
+
+# Allow pruning currently playing item
+prune_playing = false
+
+# Path to garbage words file
+garbage_words_file = "/data/tvtitle_munge.txt"
+
+# Automatically launch mpv if not running
+auto_launch_mpv = false
+
+# Automatically restart mpv if it quits
+auto_restart_mpv = false
+
+# Resume playback on restart
+resume = true
+
+# Resume even if file is outside recent window
+resume_allow_stale = false
+
+# Watch subdirectories for changes
+watch_subdirs = false
+
+# Logging configuration
+log_level = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+log_file = "/var/log/perpetual.log"  # Optional, comment out to disable file logging
+
+# Health check interval in seconds
+health_check_interval = 30
+
+# File stability checking (prevents processing files still being written)
+file_stability_delay = 1.0  # Seconds between checks
+file_stability_checks = 2    # Number of checks before accepting file
