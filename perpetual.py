@@ -35,7 +35,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, List, Set, Tuple, Pattern
+from typing import Optional, Dict, List, Set, Tuple, Pattern, Any
 
 # ================= Logging Setup =================
 logger = logging.getLogger("perpetual")
@@ -953,7 +953,7 @@ def reconcile_playlist(ipc: MpvIPC, desired_paths: List[Path], keep_current: boo
                 p = fn
             idx_by_path[p] = i
 
-    cur_pos = ipc.get_property("playlist-current-pos") or -1
+    cur_pos = _safe_int_from_property(ipc.get_property("playlist-current-pos"), -1)
 
     desired_set = {str(p) for p in desired_paths}
     current_set = set(idx_by_path.keys())
@@ -1032,6 +1032,56 @@ def reorder_playlist(ipc: MpvIPC, desired_paths: List[Path]) -> None:
                 index_of[current[k]] = k
 
 
+def _safe_int_from_property(value: Any, default: int = 0) -> int:
+    """
+    Safely extract an integer from an mpv property value.
+
+    Args:
+        value: Property value (can be int, float, str, list, dict, or None)
+        default: Default value if extraction fails
+
+    Returns:
+        Integer value or default
+    """
+    if value is None:
+        return default
+
+    # Handle direct numeric types
+    if isinstance(value, (int, bool)):
+        return int(value)
+
+    if isinstance(value, float):
+        return int(value)
+
+    # Handle string representations
+    if isinstance(value, str):
+        try:
+            return int(float(value))
+        except (ValueError, TypeError):
+            return default
+
+    # Handle lists - take length or first element
+    if isinstance(value, list):
+        if not value:
+            return default
+        # If first element is numeric, use it
+        if isinstance(value[0], (int, float)):
+            return int(value[0])
+        # Otherwise return the list length
+        return len(value)
+
+    # Handle dicts - try common keys
+    if isinstance(value, dict):
+        for key in ["playlist_entry_id", "value", "data"]:
+            if key in value:
+                return _safe_int_from_property(value[key], default)
+        return default
+
+    # Unknown type
+    logger.debug(f"Unexpected property type {type(value).__name__}: {value}")
+    return default
+
+
 def ensure_playing(ipc: MpvIPC) -> None:
     """
     Ensure mpv is playing if playlist has items.
@@ -1039,16 +1089,11 @@ def ensure_playing(ipc: MpvIPC) -> None:
     Args:
         ipc: MPV IPC client
     """
-    count = ipc.get_property("playlist-count") or 0
-    if isinstance(count, dict):
-        count = count.get("playlist_entry_id", 0)
-
-    cur = ipc.get_property("playlist-current-pos")
-    if cur is not None and isinstance(cur, dict):
-        cur = cur.get("playlist_entry_id", 0)
+    count = _safe_int_from_property(ipc.get_property("playlist-count"), 0)
+    cur = _safe_int_from_property(ipc.get_property("playlist-current-pos"), -1)
 
     if count > 0:
-        if cur is None or cur < 0:
+        if cur < 0:
             ipc.send("playlist-play-index", 0)
         ipc.send("set", "pause", "no")
         ipc.send("sub-pos", "-100")
@@ -1072,12 +1117,29 @@ def save_resume_state(ipc: MpvIPC, resume_path: Path) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
 
     path = ipc.get_property("path")
-    pos = ipc.get_property("time-pos")
+    pos_raw = ipc.get_property("time-pos")
 
-    if path and isinstance(pos, (int, float)):
+    # Safely convert position to float
+    pos = None
+    if isinstance(pos_raw, (int, float)):
+        pos = float(pos_raw)
+    elif isinstance(pos_raw, str):
+        try:
+            pos = float(pos_raw)
+        except (ValueError, TypeError):
+            pass
+    elif isinstance(pos_raw, list) and pos_raw and isinstance(pos_raw[0], (int, float)):
+        pos = float(pos_raw[0])
+    elif isinstance(pos_raw, dict):
+        for key in ["value", "data", "time"]:
+            if key in pos_raw and isinstance(pos_raw[key], (int, float)):
+                pos = float(pos_raw[key])
+                break
+
+    if path and pos is not None:
         try:
             with open(resume_path, "w", encoding='utf-8') as f:
-                json.dump({"path": path, "time": float(pos)}, f)
+                json.dump({"path": path, "time": pos}, f)
             logger.debug(f"Saved resume state: {path} @ {pos:.1f}s")
         except Exception as e:
             logger.warning(f"Failed to save resume state: {e}")
@@ -1171,6 +1233,28 @@ def resync_playlist(ipc: MpvIPC, config: Config) -> None:
     reconcile_playlist(ipc, desired, keep_current=not config.prune_playing)
     reorder_playlist(ipc, desired)
     ensure_playing(ipc)
+
+
+def safe_resync_playlist(ipc: MpvIPC, config: Config) -> bool:
+    """
+    Safely resynchronize playlist with error handling.
+
+    Args:
+        ipc: MPV IPC client
+        config: Application configuration
+
+    Returns:
+        True if successful, False if error occurred
+    """
+    try:
+        resync_playlist(ipc, config)
+        return True
+    except (TypeError, ValueError, AttributeError) as e:
+        logger.error(f"Data type error during playlist resync: {e}", exc_info=True)
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error during playlist resync: {e}", exc_info=True)
+        return False
 
 
 def main() -> None:
@@ -1325,7 +1409,7 @@ def main() -> None:
                         if config.auto_restart_mpv:
                             logger.info("mpv quit, auto-restarting...")
                             if ipc.reconnect():
-                                resync_playlist(ipc, config)
+                                safe_resync_playlist(ipc, config)
                             else:
                                 logger.error("Failed to restart mpv")
                                 break
@@ -1335,7 +1419,7 @@ def main() -> None:
                     else:
                         logger.warning("IPC connection appears dead, reconnecting...")
                         if ipc.reconnect():
-                            resync_playlist(ipc, config)
+                            safe_resync_playlist(ipc, config)
                         else:
                             logger.error("Failed to reconnect")
                             # If mpv quit cleanly, exit instead of retrying
@@ -1364,7 +1448,7 @@ def main() -> None:
                     if config.auto_restart_mpv:
                         logger.info("mpv quit, auto-restarting...")
                         if ipc.reconnect():
-                            resync_playlist(ipc, config)
+                            safe_resync_playlist(ipc, config)
                         else:
                             time.sleep(1)
                             continue
@@ -1374,7 +1458,7 @@ def main() -> None:
                 else:
                     logger.error("Socket is None but file exists, attempting reconnect...")
                     if ipc.reconnect():
-                        resync_playlist(ipc, config)
+                        safe_resync_playlist(ipc, config)
                     else:
                         # If reconnect failed and mpv quit cleanly, exit
                         if ipc.has_quit_cleanly() and not config.auto_restart_mpv:
@@ -1397,7 +1481,7 @@ def main() -> None:
                             if config.auto_restart_mpv:
                                 logger.info("Auto-restarting mpv...")
                                 if ipc.reconnect():
-                                    resync_playlist(ipc, config)
+                                    safe_resync_playlist(ipc, config)
                                 else:
                                     logger.error("Failed to restart mpv")
                                     break
@@ -1412,7 +1496,7 @@ def main() -> None:
                         if config.auto_restart_mpv:
                             logger.info("Auto-restarting mpv...")
                             if ipc.reconnect():
-                                resync_playlist(ipc, config)
+                                safe_resync_playlist(ipc, config)
                             else:
                                 logger.error("Failed to restart mpv")
                                 break
@@ -1446,7 +1530,7 @@ def main() -> None:
                                     except Exception as e:
                                         logger.warning(f"Could not watch {show_dir}: {e}")
 
-                        resync_playlist(ipc, config)
+                        safe_resync_playlist(ipc, config)
 
             # Periodic resume save
             now = time.monotonic()
@@ -1466,7 +1550,7 @@ def main() -> None:
             # Exit main loop
         elif ipc.reconnect():
             logger.info("Reconnected successfully, continuing...")
-            resync_playlist(ipc, config)
+            safe_resync_playlist(ipc, config)
         else:
             logger.error("Could not reconnect")
             # Also exit if can't reconnect and mpv quit cleanly

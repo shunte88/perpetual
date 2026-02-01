@@ -26,4 +26,9 @@ echo now launch recent
 
 sleep 3
 
-clear;python3 ~/perpetual/perpetual.py --days $1 --prune-playing --watch-subdirs --resume --socket /tmp/mpv.sock
+clear;python3 ~/perpetual/perpetual.py --days $1 \
+ --prune-playing \
+ --watch-subdirs \
+ --resume \
+ --resume-allow-stale \
+ --socket /tmp/mpv.sock
