@@ -305,7 +305,7 @@ FILETYPES = ["avi", "mkv", "mpeg", "mp4", "m4v", "mpg", "webm", "avif", "ts"]
 SPECIAL_CASES = {
     "USA", "FBI", "BBC", "US", "AU", "PL", "IE", "NZ", "FR", "DE", "JP", "UK",
     "QI", "XL", "SAS", "RAF", "WWII", "WPC", "LOL", "VI", "VII", "VIII", "VIIII", "IX", "II", "III", "IV",
-    "DCI", "HD", "W1A", "HBO", "100K"
+    "DCI", "HD", "W1A", "HBO", "100K", "CIA", "DTF"
 }
 
 
@@ -937,7 +937,6 @@ def reconcile_playlist(ipc: MpvIPC, desired_paths: List[Path], keep_current: boo
     # Validate playlist is a list
     if not isinstance(playlist, list):
         logger.warning(f"Expected playlist to be list, got {type(playlist).__name__}: {playlist}")
-        print(playlist)
         return
 
     idx_by_path = {}
@@ -974,7 +973,7 @@ def reconcile_playlist(ipc: MpvIPC, desired_paths: List[Path], keep_current: boo
         ipc.send("playlist-remove", idx)
 
     for p in to_add:
-        ipc.send("loadfile", p, "append-play")
+        ipc.send("loadfile", p, "append")
 
     if to_add or remove_indices:
         logger.debug(f"Playlist: added {len(to_add)}, removed {len(remove_indices)}")
@@ -1010,6 +1009,10 @@ def reorder_playlist(ipc: MpvIPC, desired_paths: List[Path]) -> None:
         except Exception:
             current.append(fn)
 
+    # Identify the currently-playing path so we never move it mid-playback
+    cur_pos = _safe_int_from_property(ipc.get_property("playlist-current-pos"), -1)
+    cur_path = current[cur_pos] if 0 <= cur_pos < len(current) else None
+
     index_of = {path: i for i, path in enumerate(current)}
 
     for i, want in enumerate(desired):
@@ -1018,12 +1021,17 @@ def reorder_playlist(ipc: MpvIPC, desired_paths: List[Path]) -> None:
 
         j = index_of.get(want)
         if j is None:
-            ipc.send("loadfile", want, "append-play")
+            ipc.send("loadfile", want, "append")
             current.append(want)
             index_of[want] = len(current) - 1
             j = index_of[want]
 
         if j != i:
+            # Never move the currently-playing item — doing so can restart playback
+            if want == cur_path:
+                logger.debug(f"Skipping reorder of currently-playing item to avoid interruption")
+                continue
+
             ipc.send("playlist-move", j, i)
             item = current.pop(j)
             current.insert(i, item)
